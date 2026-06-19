@@ -14,7 +14,7 @@ app = FastAPI(title="OCR Number Detection API")
 
 def extract_number_from_image(image_file):
     try:
-        # Convert bytes to numpy array
+        
         img = Image.open(io.BytesIO(image_file))
         img_array = np.array(img)
  
@@ -23,10 +23,8 @@ def extract_number_from_image(image_file):
         if not results:
             return None
         
-        # Extract all detected numbers
         detected_numbers = []
         for (bbox, text, confidence) in results:
-            # Clean the text to only include digits
             cleaned = re.sub(r'[^0-9]', '', text)
             if cleaned:
                 detected_numbers.append((cleaned, confidence))
@@ -34,14 +32,11 @@ def extract_number_from_image(image_file):
         if not detected_numbers:
             return None
         
-        # Return the number with highest confidence
         best_number = max(detected_numbers, key=lambda x: x[1])[0]
         
-        # Filter for 3-digit numbers if that's your format
         if len(best_number) == 3:
             return best_number
         
-        # Otherwise return the best result
         return best_number
     
     except Exception as e:
@@ -79,16 +74,14 @@ async def recognizeBatch(files: list[UploadFile] = File(...)):
         if not files:
             raise HTTPException(status_code=400, detail="No files uploaded")
         
-        extracted_numbers = []
+        extracted_numbers = []          
+        indexed_results = []            
         failed_images = []
         
-        # Process each image
-        for file in files:
+        for idx, file in enumerate(files):
             try:
-                # Read file content
                 contents = await file.read()
-                
-                # Validate it's actually an image by trying to open it
+
                 try:
                     Image.open(io.BytesIO(contents))
                 except Exception:
@@ -98,32 +91,43 @@ async def recognizeBatch(files: list[UploadFile] = File(...)):
                     })
                     continue
                 
-                # Extract number from image
                 number = extract_number_from_image(contents)
-                
+
                 if number:
                     extracted_numbers.append(number)
+                    indexed_results.append((number, idx))   
                 else:
                     failed_images.append({
                         "filename": file.filename or "unknown",
                         "error": "No number detected"
                     })
-            
+
             except Exception as e:
                 failed_images.append({
                     "filename": file.filename or "unknown",
                     "error": str(e)
                 })
-        
-        # Find most common number
+
         result = find_most_common_number(extracted_numbers)
-        
+
+        indices = []
+
+        if result["most_common_number"] is not None:
+            most_common = result["most_common_number"]
+
+            indices = [
+                idx + 1 for (num, idx) in indexed_results
+                if num == most_common
+            ]
+
+
         return JSONResponse(content={
             "success": True,
             "result": result,
+            "indices_containing_number": indices ,
             "failed_images": failed_images if failed_images else None
         })
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
